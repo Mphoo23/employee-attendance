@@ -14,8 +14,6 @@
         "NSLocationWhenInUseUsageDescription": "We need your location for attendance check"
       }
     },
-    
-    
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -28,7 +26,8 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
-      ]
+      ],
+      "package": "com.mayzun.employeeattendance"
     },
     "web": {
       "output": "static",
@@ -52,7 +51,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b8c91470-52bf-4e7b-8893-16873c73d041"
+      }
     }
   }
-
 }

@@ -1,372 +1,178 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useEmployeeContext } from '../context/useEmployee';
 
 const EmployeeList = () => {
   const router = useRouter();
+  const { employees, deleteEmployee, loggedInEmployee } = useEmployeeContext();
 
-  const {
-    employees,
-    clearEmployees,
-    deleteEmployee,
-  } = useEmployeeContext();
-
-  const [role, setRole] = useState<string | null>(null);
-
-  // MODAL STATE
+  const [search, setSearch] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
-  const [modalType, setModalType] = useState<'delete' | 'clear' | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
 
-  useEffect(() => {
-    const getRole = async () => {
-      const savedRole = await AsyncStorage.getItem('userRole');
-      setRole(savedRole);
-    };
-
-    getRole();
-  }, []);
-
-  const openClearModal = () => {
-    setModalType('clear');
-    setSelectedEmployee(null);
+  const filteredEmployees = employees.filter((e) =>
+    e.name.toLowerCase().includes(search.toLowerCase())
+  );
+  
+  const openDeleteModal = (emp: any) => {
+    setSelectedEmployee(emp);
     setModalVisible(true);
   };
 
-  const openDeleteModal = (employee: any) => {
-    setModalType('delete');
-    setSelectedEmployee(employee);
-    setModalVisible(true);
-  };
-
-  const confirmAction = () => {
-    if (modalType === 'clear') {
-      clearEmployees();
-    } else if (modalType === 'delete' && selectedEmployee) {
+  const confirmDelete = () => {
+    if (selectedEmployee) {
       deleteEmployee(selectedEmployee.firebaseId);
     }
-
     setModalVisible(false);
-    setSelectedEmployee(null);
-    setModalType(null);
   };
 
   return (
-    <View style={styles.safeArea}>
-      <LinearGradient
-        colors={['#7F5AF0', '#5B8CFF']}
-        style={styles.container}
-      >
+    <View style={{ flex: 1, backgroundColor: '#F6F7FF' }}>
 
-        {/* HEADER */}
-        <View style={styles.headerRow}>
-          <Pressable
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="chevron-back" size={22} color="white" />
-          </Pressable>
+      {/* HEADER */}
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={26} color="#5B6EF7" />
+        </Pressable>
 
-          <Text style={styles.headerTitle}>
-            Employee List
+        <Text style={styles.headerTitle}>Employee List</Text>
+
+        <View style={{ width: 26 }} />
+      </View>
+
+      <View style={styles.searchBox}>
+        <Ionicons name="search" size={18} color="#999" />
+        <TextInput
+          placeholder="Search employees..."
+          value={search}
+          onChangeText={setSearch}
+          style={{ flex: 1, marginLeft: 8 }}
+        />
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: 15, paddingBottom: 120 }}>
+        <Text style={styles.sectionTitle}>
+          MEMBERS ({filteredEmployees.filter(e => e.name !== 'Admin').length})
+        </Text>
+
+        {filteredEmployees.length === 0 && (
+          <Text style={{ textAlign: 'center', marginTop: 20, color: '#999' }}>
+            No employees found matching your search.
           </Text>
+        )}
 
-          {role === 'admin' ? (
-            <Pressable
-              style={styles.clearButton}
-              onPress={openClearModal}
-            >
-              <Ionicons name="trash" size={18} color="#fff" />
-            </Pressable>
-          ) : (
-            <View style={{ width: 42 }} />
-          )}
-        </View>
+        {filteredEmployees.map((emp) => {
+          if (emp.name === 'Admin') return null;
 
-        <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
-
-          {employees.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="people-outline" size={50} color="#7F5AF0" />
-              <Text style={styles.emptyText}>No employees found</Text>
-            </View>
-          ) : (
-            employees.map((employee) => (
-              <View key={employee.firebaseId} style={styles.employeeCard}>
-
-                <View style={styles.leftSide}>
-                  <View style={styles.avatarContainer}>
-                    <Text style={styles.avatarText}>
-                      {employee.name.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-
-                  <View style={styles.employeeInfo}>
-                    <Text style={styles.employeeName}>
-                      {employee.name}
-                    </Text>
-
-                    <Text style={styles.employeePosition}>
-                      {employee.position}
-                    </Text>
-
-                    <Text style={styles.employeeDepartment}>
-                      {employee.department}
-                    </Text>
-                  </View>
+          return (
+            <View key={emp.firebaseId} style={styles.card}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <View style={styles.avatar}>
+                  <Text style={{ color: '#5B6EF7', fontWeight: 'bold' }}>
+                    {emp.name.charAt(0)}
+                  </Text>
                 </View>
 
-                {role === 'admin' && (
+                <View style={{ marginLeft: 12 }}>
+                  <Text style={styles.name}>{emp.name}</Text>
+                  <Text style={styles.dept}>{emp.department}</Text>
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{emp.position}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {loggedInEmployee?.role === 'admin' && (
+                <View style={{ flexDirection: 'row', gap: 20 }}>
                   <Pressable
-                    style={styles.deleteBtn}
-                    onPress={() => openDeleteModal(employee)}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/edit_employee',
+                        params: {
+                          employeeData: JSON.stringify({
+                            firebaseId: emp.firebaseId, 
+                            name: emp.name,
+                            id: emp.id,
+                            phoneno: emp.phoneno,
+                            position: emp.position,
+                            gender: emp.gender,
+                            email: emp.email,
+                            address: emp.address,
+                            department: emp.department
+                          })
+                        }
+                      })
+                    }
                   >
-                    <Ionicons name="trash" size={18} color="#FF4D6D" />
+                    <MaterialCommunityIcons name="account-edit-outline" size={20} color="#666" />
                   </Pressable>
-                )}
 
-              </View>
-            ))
-          )}
+                  <Pressable onPress={() => openDeleteModal(emp)}>
+                    <Ionicons name="trash-outline" size={18} color="#FF4D6D" />
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          );
+        })}
+      </ScrollView>
 
-        </ScrollView>
+      {loggedInEmployee?.role === 'admin' && (
+        <Pressable style={styles.fab} onPress={() => router.push('/enroll_employee')}>
+          <Ionicons name="person-add" size={18} color="white" />
+        </Pressable>
+      )}
 
-        {/* ================= MODAL ================= */}
-        <Modal
-          visible={modalVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalBox}>
+      <Modal visible={modalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Ionicons name="warning" size={40} color="#FF4D6D" />
+            <Text style={{ fontSize: 16, marginVertical: 15 }}>
+              Delete {selectedEmployee?.name}?
+            </Text>
 
-              <Ionicons
-                name="warning"
-                size={45}
-                color="#FF4D6D"
-                style={{ marginBottom: 10 }}
-              />
-
-              <Text style={styles.modalText}>
-                {modalType === 'clear'
-                  ? 'Are you sure you want to delete ALL employees?'
-                  : `Remove all about ${selectedEmployee?.name}?`}
-              </Text>
-
-              <View style={styles.modalButtons}>
-
-                <Pressable
-                  style={styles.cancelBtn}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={styles.cancelText}>Cancel</Text>
-                </Pressable>
-
-                <Pressable
-                  style={styles.deleteBtnModal}
-                  onPress={confirmAction}
-                >
-                  <Text style={styles.deleteText}>Delete</Text>
-                </Pressable>
-
-              </View>
-
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
+                <Text>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.deleteBtn} onPress={confirmDelete}>
+                <Text style={{ color: 'white' }}>Delete</Text>
+              </Pressable>
             </View>
           </View>
-        </Modal>
-
-      </LinearGradient>
+        </View>
+      </Modal>
     </View>
   );
 };
 
 export default EmployeeList;
 
-/* ================= STYLES ================= */
-
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, 
-    backgroundColor: '#7F5AF0'
-  },
-
-  container: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-  },
-
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 45,
-    marginBottom: 25,
-  },
-
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  headerTitle: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '700',
-  },
-
-  clearButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 20,
-    backgroundColor: '#FF4D6D',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  employeeCard: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 16,
-    marginBottom: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  leftSide: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-
-  avatarContainer: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: '#EEF2FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  avatarText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#5B5FEF',
-  },
-
-  employeeInfo: {
-    marginLeft: 14,
-  },
-
-  employeeName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#222',
-  },
-
-  employeePosition: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-
-  employeeDepartment: {
-    fontSize: 13,
-    color: '#999',
-    marginTop: 2,
-  },
-
-  deleteBtn: {
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: '#FFF1F3',
-  },
-
-  emptyCard: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 40,
-    alignItems: 'center',
-    marginTop: 50,
-  },
-
-  emptyText: {
-    marginTop: 15,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#555',
-  },
-
-  /* ================= MODAL ================= */
-
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  modalBox: {
-    width: '80%',
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
-    alignItems: 'center',
-  },
-
-  modalText: {
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginVertical: 15,
-    color: '#333',
-  },
-
-  modalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 10,
-  },
-
-  cancelBtn: {
-    flex: 1,
-    padding: 12,
-    backgroundColor: '#EEF2FF',
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-
-  cancelText: {
-    fontWeight: '600',
-    color: '#333',
-  },
-
-  deleteBtnModal: {
-    flex: 1,
-    padding: 12,
-    backgroundColor: '#FF4D6D',
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-
-  deleteText: {
-    fontWeight: '700',
-    color: '#fff',
-  },
+  header: { paddingTop: 60, paddingBottom: 20, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F6F7FF' },
+  headerTitle: { color: '#5B6EF7', fontSize: 20, fontWeight: '700', flex: 1, textAlign: 'center' },
+  searchBox: { flexDirection: 'row', backgroundColor: 'white', margin: 15, paddingVertical: 5, paddingHorizontal: 12, borderRadius: 12, alignItems: 'center', elevation: 2 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', color: '#666', marginBottom: 10 },
+  card: { backgroundColor: 'white', padding: 15, borderRadius: 16, marginBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', elevation: 2 },
+  avatar: { width: 45, height: 45, borderRadius: 22, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center' },
+  name: { fontWeight: '700', fontSize: 14 },
+  dept: { fontSize: 12, color: '#999' },
+  badge: { marginTop: 4, backgroundColor: '#EEF2FF', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, alignSelf: 'flex-start' },
+  badgeText: { fontSize: 10, color: '#5B6EF7', fontWeight: '600' },
+  fab: { position: 'absolute', bottom: 100, right: 20, backgroundColor: '#5B6EF7', width: 50, height: 50, borderRadius: 30, justifyContent: 'center', alignItems: 'center', elevation: 5 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalBox: { backgroundColor: 'white', padding: 20, borderRadius: 16, width: '80%', alignItems: 'center' },
+  cancelBtn: { flex: 1, backgroundColor: '#EEE', padding: 10, borderRadius: 10, alignItems: 'center' },
+  deleteBtn: { flex: 1, backgroundColor: '#FF4D6D', padding: 10, borderRadius: 10, alignItems: 'center' },
 });

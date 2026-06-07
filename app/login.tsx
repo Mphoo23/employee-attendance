@@ -1,18 +1,33 @@
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { collection, getDocs } from 'firebase/firestore';
 import React, { useState } from 'react';
-import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useEmployeeContext } from '../context/useEmployee'; // Context ကို import လုပ်ပါ
+import { useEmployeeContext } from '../context/useEmployee';
 import { db } from '../src/config/firebase';
 
 const Login = () => {
   const router = useRouter();
-  const { setLoggedInEmployee } = useEmployeeContext(); // Context မှ setLoggedInEmployee ကို ယူပါ
+  const { setLoggedInEmployee } = useEmployeeContext();
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -24,37 +39,34 @@ const Login = () => {
       }
       setLoading(true);
 
-      // Admin Login
-      if (username.trim() === 'admin' && password.trim() === '123') {
-        await AsyncStorage.setItem('userRole', 'admin');
-        router.replace('/');
-        return;
-      }
-
-      // Employee Login
       const snapshot = await getDocs(collection(db, 'employees'));
       const employees = snapshot.docs.map((doc) => ({
         firebaseId: doc.id,
         ...(doc.data() as any),
       }));
 
-      const foundEmployee = employees.find(
-        (emp: any) =>
-          emp.name?.toLowerCase().trim() === username.toLowerCase().trim() &&
-          emp.id?.toString() === password.trim()
-      );
+      const foundEmployee = employees.find((emp: any) => {
+        const nameMatch = emp.name?.toLowerCase().trim() === username.toLowerCase().trim();
+        const passwordMatch = emp.password
+          ? emp.password === password.trim()
+          : emp.id?.toString() === password.trim();
+        return nameMatch && passwordMatch;
+      });
 
       if (foundEmployee) {
-        await AsyncStorage.setItem('userRole', 'employee');
-        // Context ကို update လုပ်ပါ (ဒီ function က AsyncStorage ထဲကိုပါ သိမ်းပေးမှာပါ)
-        await setLoggedInEmployee(foundEmployee);
+        // Persist session if "Remember me" is checked
+        if (rememberMe) {
+          await AsyncStorage.setItem('loggedInEmployee', JSON.stringify(foundEmployee));
+        }
+
+        await setLoggedInEmployee(foundEmployee as any);
         router.replace('/');
         return;
       }
-
+      
       Alert.alert('Login Failed', 'Invalid username or password');
     } catch (error) {
-      console.log('LOGIN ERROR:', error);
+      console.error(error);
       Alert.alert('Error', 'Something went wrong');
     } finally {
       setLoading(false);
@@ -63,30 +75,43 @@ const Login = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* သင်၏ မူလ UI code အတိုင်းပဲ ထားပါ */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardView}>
-        <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          <View style={styles.container}>
-            <View style={styles.logoContainer}>
-              <Image source={require('../src/gic.png')} style={styles.logo} />
-              <Text style={styles.titleColor}>Employee Attendance</Text>
+        <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+          
+          <View style={styles.headerContainer}>
+            <Image source={require('../src/gic.png')} style={styles.logo} />
+            <Text style={styles.mainTitle}>Employee Attendance</Text>
+            <Text style={styles.mainSubtitle}>Sign in to manage your attendance</Text>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.fieldContainer}>
+              <Text style={styles.label}>Username</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons name="person-outline" size={20} color="#94A3B8" style={styles.prefixIcon} />
+                <TextInput value={username} onChangeText={setUsername} style={styles.inputField} autoCapitalize="none" placeholder="Enter your name" placeholderTextColor="#94A3B8" />
+              </View>
             </View>
 
-            <LinearGradient colors={['#7F5AF0', '#5B8CFF']} style={styles.cardGradient}>
-              <View style={styles.fieldContainer}>
-                <Text style={styles.label}>Username</Text>
-                <TextInput value={username} onChangeText={setUsername} style={styles.input} autoCapitalize="none" placeholder="Enter your name" placeholderTextColor="#aaa" />
+            <View style={styles.fieldContainer}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons name="lock-closed-outline" size={20} color="#94A3B8" style={styles.prefixIcon} />
+                <TextInput value={password} onChangeText={setPassword} style={styles.inputField} secureTextEntry={!showPassword} placeholder="••••••" placeholderTextColor="#94A3B8" />
+                <Pressable onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+                  <Ionicons name={showPassword ? "eye-outline" : "eye-off-outline"} size={20} color="#94A3B8" />
+                </Pressable>
               </View>
+            </View>
 
-              <View style={styles.fieldContainer}>
-                <Text style={styles.label}>Password</Text>
-                <TextInput value={password} onChangeText={setPassword} style={styles.input} keyboardType="numeric" secureTextEntry placeholder="Enter your password" placeholderTextColor="#aaa" />
-              </View>
+            <Pressable style={styles.checkboxContainer} onPress={() => setRememberMe(!rememberMe)}>
+              <Ionicons name={rememberMe ? "checkbox" : "square-outline"} size={22} color={rememberMe ? "#5B6EF7" : "#94A3B8"} />
+              <Text style={styles.checkboxText}> Remember this device</Text>
+            </Pressable>
 
-              <TouchableOpacity style={styles.button} onPress={handleLogin} activeOpacity={0.8} disabled={loading}>
-                <Text style={styles.buttonText}>{loading ? 'Logging in...' : 'Login'}</Text>
-              </TouchableOpacity>
-            </LinearGradient>
+            <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
+              <Text style={styles.buttonText}>{loading ? 'Logging in...' : 'Login →'}</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -96,57 +121,23 @@ const Login = () => {
 
 export default Login;
 
-
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#F3F4F6' },
+  safeArea: { flex: 1, backgroundColor: '#F6F7FF' },
   keyboardView: { flex: 1 },
-  scrollContainer: { flexGrow: 1, justifyContent: 'center', padding: 20 },
-  container: { width: '95%', maxWidth: 400, alignSelf: 'center' },
-  logoContainer: { flexDirection: 'column', alignItems: 'center', justifyContent: 'center', marginBottom: 25 },
-  logo: { width: 60, height: 60, resizeMode: 'contain', marginBottom: 10 },
-  titleColor: { fontSize: 26, fontWeight: '800', color: '#0534bf', textAlign: 'center' },
-  cardGradient: {
-    borderRadius: 30,
-    padding: 30,
-    shadowColor: '#5B8CFF',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 10,
-  },
+  scrollContainer: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  headerContainer: { alignItems: 'center', marginBottom: 30 },
+  logo: { width: 60, height: 60, marginBottom: 15 },
+  mainTitle: { fontSize: 24, fontWeight: '800', color: '#0F172A' },
+  mainSubtitle: { fontSize: 14, color: '#64748B', marginTop: 5 },
+  card: { backgroundColor: '#FFF', borderRadius: 28, padding: 28, elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10 },
   fieldContainer: { marginBottom: 20 },
-  label: { 
-    fontSize: 17, 
-    fontWeight: '600', 
-    color: '#ffffff', 
-    marginBottom: 7, 
-    marginLeft: 4 
-  },
-  input: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    fontSize: 13,
-    color: '#333',
-  },
-  button: {
-    backgroundColor: '#fff',
-    paddingVertical: 15,
-    paddingHorizontal: 25,
-    borderRadius: 16,
-    alignSelf: 'center',
-    marginVertical: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  buttonText: { 
-    color: '#5B8CFF', 
-    fontSize: 16, 
-    fontWeight: '800',
-    textAlign: 'center' 
-  },
+  label: { fontSize: 14, fontWeight: '700', color: '#334155', marginBottom: 8 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F4F5FF', borderRadius: 16, paddingHorizontal: 16, borderWidth: 1, borderColor: '#E5E7EB' },
+  prefixIcon: { marginRight: 10 },
+  inputField: { flex: 1, paddingVertical: 16, fontSize: 15, color: '#0F172A' },
+  eyeIcon: { padding: 8 },
+  checkboxContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  checkboxText: { color: '#64748B', fontSize: 14, marginLeft: 8 },
+  button: { backgroundColor: '#5B6EF7', borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
+  buttonText: { color: '#FFF', fontSize: 17, fontWeight: '800' }
 });

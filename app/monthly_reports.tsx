@@ -1,10 +1,12 @@
 import { useEmployeeContext } from '@/context/useEmployee';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,44 +16,37 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const MYANMAR_HOLIDAYS_2026 = [
-  '2026-01-01', '2026-01-02', '2026-01-04', '2026-02-12', '2026-02-13',
-  '2026-02-16', '2026-02-17', '2026-03-02', '2026-03-27', '2026-04-11',
-  '2026-04-12', '2026-04-13', '2026-04-14', '2026-04-15', '2026-04-16',
-  '2026-04-17', '2026-04-18', '2026-04-19', '2026-04-30', '2026-05-01',
-  '2026-05-27', '2026-07-19', '2026-07-29', '2026-10-25', '2026-10-26',
-  '2026-10-27', '2026-11-08', '2026-11-23', '2026-11-24', '2026-12-04',
-  '2026-12-25',
-];
-
-const avatarColors = ['#DBEAFE', '#FCE7F3', '#DCFCE7', '#FEF3C7', '#E9D5FF'];
-
 const MonthlyEmployeeReport = () => {
   const router = useRouter();
-  const { employees, attendanceRecords } = useEmployeeContext();
+  const { employees, attendanceRecords, getStatusStyle, publicHolidays, loggedInEmployee } = useEmployeeContext();
+  
   const [searchText, setSearchText] = useState('');
-  const [userRole, setUserRole] = useState('');
-  const [loggedInId, setLoggedInId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showMonthModal, setShowMonthModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadUserData = async () => {
-      try {
-        const role = await AsyncStorage.getItem('userRole');
-        const loggedInEmp = await AsyncStorage.getItem('loggedInEmployee');
-        if (role) setUserRole(role);
-        if (loggedInEmp) setLoggedInId(loggedInEmp);
-      } catch (e) {
-        console.error("Failed to load user data", e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    loadUserData();
+  const BUSINESS_START_MONTH = 3;
+
+  useEffect(() => { setIsLoading(false); }, []);
+
+  const businessYearMonths = useMemo(() => {
+    const months = [];
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+
+    let startYear = currentMonth < BUSINESS_START_MONTH ? currentYear - 1 : currentYear;
+    
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(startYear, BUSINESS_START_MONTH + i, 1);
+      months.push(d);
+    }
+    return months;
   }, []);
 
-  const currentMonth = 4; // May
-  const currentYear = 2026;
+  const currentMonth = selectedDate.getMonth();
+  const currentYear = selectedDate.getFullYear();
+  const displayTitle = selectedDate.toLocaleString('default', { month: 'long'}) + ', ' + selectedDate.toLocaleString('default', { year: 'numeric' });
 
   const totalWorkingDays = useMemo(() => {
     let workingDaysCount = 0;
@@ -60,26 +55,22 @@ const MonthlyEmployeeReport = () => {
       const date = new Date(currentYear, currentMonth, day);
       const dateString = date.toISOString().split('T')[0];
       const dayOfWeek = date.getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6 && !MYANMAR_HOLIDAYS_2026.includes(dateString)) workingDaysCount++;
+      if (dayOfWeek !== 0 && dayOfWeek !== 6 && !publicHolidays.includes(dateString)) workingDaysCount++;
     }
     return workingDaysCount;
-  }, []);
+  }, [currentMonth, currentYear, publicHolidays]);
 
   const monthlyRecords = useMemo(() => {
     return attendanceRecords.filter((record) => {
       const recordDate = new Date(record.date);
       return recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
     });
-  }, [attendanceRecords]);
+  }, [attendanceRecords, currentMonth, currentYear]);
 
   const employeeReports = useMemo(() => {
     if (isLoading) return [];
     return employees
-      .filter((emp) => {
-        const matchesSearch = emp.name.toLowerCase().includes(searchText.toLowerCase());
-        if (userRole === 'admin') return matchesSearch;
-        return searchText.length > 0 ? matchesSearch : String(emp.id) === String(loggedInId);
-      })
+      .filter((emp) => emp.name.toLowerCase().includes(searchText.toLowerCase()) || emp.department.toLowerCase().includes(searchText.toLowerCase()))
       .map((employee) => {
         const empRecords = monthlyRecords.filter((r) => String(r.employeeId) === String(employee.id));
         const presentCount = empRecords.filter((r) => r.status === 'Present').length;
@@ -89,88 +80,153 @@ const MonthlyEmployeeReport = () => {
         const attendanceRate = totalWorkingDays > 0 ? Math.round(((presentCount + wfhCount) / totalWorkingDays) * 100) : 0;
         return { ...employee, presentCount, wfhCount, leaveCount, idleCount, attendanceRate };
       });
-  }, [employees, monthlyRecords, searchText, totalWorkingDays, userRole, loggedInId, isLoading]);
+  }, [employees, monthlyRecords, searchText, totalWorkingDays, isLoading]);
 
-  if (isLoading) return <SafeAreaView style={[styles.safeArea, { justifyContent: 'center' }]}><ActivityIndicator size="large" color="#fff" /></SafeAreaView>;
+  const generateExcel = async () => {
+    const header = "Name,Department,Present,WFH,Leave,Idle,Attendance Rate (%)\n";
+    const rows = employeeReports.map(emp => 
+      `${emp.name},${emp.department},${emp.presentCount},${emp.wfhCount},${emp.leaveCount},${emp.idleCount},${emp.attendanceRate}`
+    ).join("\n");
+    const csvContent = header + rows;
+    const fileName = `Attendance_${displayTitle.replace(', ', '_')}.csv`;
+    const fileUri = FileSystem.documentDirectory + fileName;
+    try {
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: FileSystem.EncodingType.UTF8 });
+      await Sharing.shareAsync(fileUri);
+    } catch (error) { console.error("Error generating CSV:", error); }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContainer}>
-          <View style={styles.headerRow}>
-            <TouchableOpacity style={styles.backButton} onPress={() => router.back()}><Ionicons name="chevron-back" size={24} color="#fff" /></TouchableOpacity>
-            <Text style={styles.header}>Monthly Report</Text>
-            <View style={{ width: 40 }} />
-          </View>
-
-          <View style={styles.dateInfoContainer}>
-            <Text style={styles.monthTitle}>May {currentYear}</Text>
-            <View style={{ width: 10 }} />
-            <Text style={styles.workingDaysBadge}>● {totalWorkingDays} Working Days</Text>
-          </View>
-
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={18} color="#9CA3AF" />
-            <TextInput placeholder="Search employee..." placeholderTextColor="#9CA3AF" value={searchText} onChangeText={setSearchText} style={styles.input} />
-          </View>
-
-          {searchText === '' && userRole !== 'admin' ? (
-            <View style={styles.emptyPromptContainer}>
-              <Ionicons name="search-circle-outline" size={32} color="#feffff" />
-              <Text style={styles.emptyPromptText}>Please search name to see the data</Text>
-            </View>
-          ) : employeeReports.length === 0 ? (
-            <Text style={styles.noDataText}>No report data available.</Text>
-          ) : (
-            employeeReports.map((employee, index) => (
-              <View key={employee.id || index} style={styles.card}>
-                <View style={styles.topRow}>
-                  <View style={[styles.avatar, { backgroundColor: avatarColors[index % avatarColors.length] }]}><Text style={styles.avatarText}>{employee.name.charAt(0).toUpperCase()}</Text></View>
-                  <View style={styles.info}><Text style={styles.name}>{employee.name}</Text><Text style={styles.department}>{employee.department}</Text></View>
-                  <View style={styles.rateContainer}><Text style={styles.rateText}>{employee.attendanceRate}%</Text></View>
-                </View>
-                <View style={styles.statsContainer}>
-                  {[ { label: 'Present', value: employee.presentCount, color: '#22C55E' }, { label: 'WFH', value: employee.wfhCount, color: '#3B82F6' }, { label: 'Leave', value: employee.leaveCount, color: '#F59E0B' }, { label: 'Idle', value: employee.idleCount, color: '#EF4444' } ].map((stat, i) => (
-                    <View key={i} style={styles.statRow}><Text style={styles.statLabel}>{stat.label}</Text><Text style={[styles.statValue, { color: stat.color }]}>{stat.value}</Text></View>
-                  ))}
-                </View>
-              </View>
-            ))
-          )}
-        </ScrollView>
+      <View style={styles.headerContainer}>
+        <TouchableOpacity onPress={() => router.back()}><Ionicons name="chevron-back" size={24} color="#333" /></TouchableOpacity>
+        <Text style={styles.headerTitle}>Monthly Attendance</Text>
+        <View style={{ width: 24 }} />
       </View>
+
+      <View style={styles.inputCard}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={20} color="#9CA3AF" />
+          <TextInput placeholder="Search by name or department..." style={styles.input} value={searchText} onChangeText={setSearchText} />
+        </View>
+        <TouchableOpacity style={styles.dateSelector} onPress={() => setShowMonthModal(true)}>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+            <Ionicons name="calendar-outline" size={20} color="#666" />
+            <Text style={styles.dateText}>{displayTitle}</Text>
+          </View>
+          <Ionicons name="chevron-down" size={20} color="#666" />
+        </TouchableOpacity>
+      
+        {loggedInEmployee?.role === 'admin' && (
+          <TouchableOpacity style={styles.genBtn} onPress={generateExcel}>
+            <MaterialIcons name="bar-chart" size={18} color="white" />
+            <Text style={styles.genBtnText}>Generate report</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      
+      <View style={styles.statsHeader}>
+        <View>
+          <Text style={styles.summaryTitle}>Employee Summaries</Text>
+          <Text style={styles.subSummaryText}>Total Working Days: <Text style={{ fontWeight: 'bold' }}>{totalWorkingDays}</Text></Text>
+        </View>
+        <View style={{ justifyContent: 'center' }}>
+          <Text style={[styles.totalText, { right : 15 }]}>Total : {employeeReports.length}</Text>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        {employeeReports.length > 0 ? (
+          employeeReports.map((emp) => (
+            <View key={emp.id} style={styles.card}>
+              <View style={styles.row}>
+                <View style={[styles.avatar]}><Text style={styles.avatarText}>{emp.name.charAt(0)}</Text></View>
+                <View style={{flex: 1, marginLeft: 10}}><Text style={styles.name}>{emp.name}</Text><Text style={styles.dept}>{emp.department}</Text></View>
+                <Text style={styles.rate}>{emp.attendanceRate}%{"\n"}<Text style={{fontSize: 10, color: '#999'}}>Attendance</Text></Text>
+              </View>
+              <View style={styles.bottomStats}>
+                {[
+                  { l: 'Present', v: emp.presentCount }, 
+                  { l: 'WFH', v: emp.wfhCount }, 
+                  { l: 'Leave', v: emp.leaveCount }, 
+                  { l: 'Idle', v: emp.idleCount }
+                ].map(s => {
+                  const style = getStatusStyle(s.l);
+                  return (
+                    <View key={s.l} style={{alignItems:'center'}}>
+                      <View style={[styles.statBadge, { backgroundColor: style.backgroundColor, borderColor: style.borderColor }]}>
+                        <Text style={[styles.statLabel, { color: style.color, fontWeight: 'bold' }]}>{s.l}</Text>
+                      </View>
+                      <Text style={styles.statVal}>{s.v}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          ))
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="calendar-outline" size={60} color="#CBD5E1" />
+            <Text style={styles.emptyTitle}>No attendance records</Text>
+            <Text style={styles.emptySubtitle}>There are no attendance records for the selected date range.</Text>
+          </View>
+        )}
+      </ScrollView>
+
+      <Modal visible={showMonthModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalHeader}>Select Business Month</Text>
+            <ScrollView>
+              {businessYearMonths.map((date, i) => (
+                <TouchableOpacity key={i} style={styles.monthItem} onPress={() => { setSelectedDate(date); setShowMonthModal(false); }}>
+                  <Text>{date.toLocaleString('default', { month: 'long'}) + ', ' + date.toLocaleString('default', { year: 'numeric' })}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity onPress={() => setShowMonthModal(false)} style={styles.cancelBtn}><Text style={{color: 'red'}}>Cancel</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#7664FF' },
-  container: { flex: 1 },
-  scrollContainer: { padding: 20, paddingBottom: 40 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  header: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
-  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255, 255, 255, 0.2)', justifyContent: 'center', alignItems: 'center' },
-  dateInfoContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-  monthTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
-  workingDaysBadge: { fontSize: 14, color: 'rgba(255,255,255,0.9)', fontWeight: '600' },
-  searchBox: { height: 50, backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', marginBottom: 20, elevation: 3 },
-  input: { flex: 1, marginLeft: 10, fontSize: 14, color: '#333' },
-  emptyPromptContainer: { marginTop: 80, alignItems: 'center', justifyContent: 'center' },
-  emptyPromptText: { color: 'rgba(255, 255, 255, 0.8)', fontSize: 16, fontWeight: '500', marginTop: 15 },
-  noDataText: { color: 'white', textAlign: 'center', marginTop: 20 },
-  card: { backgroundColor: '#FFFFFF', padding: 16, borderRadius: 16, marginBottom: 12, elevation: 2 },
-  topRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  avatar: { width: 45, height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  avatarText: { fontSize: 18, fontWeight: '700' },
-  info: { flex: 1, marginLeft: 12 },
-  name: { fontSize: 15, fontWeight: '800', color: '#111827' },
-  department: { fontSize: 12, color: '#666' },
-  rateContainer: { alignItems: 'flex-end' },
-  rateText: { fontSize: 18, fontWeight: '800', color: '#7664FF' },
-  statsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
-  statRow: { alignItems: 'center' },
-  statLabel: { fontSize: 10, color: '#9CA3AF', marginBottom: 4 },
-  statValue: { fontSize: 14, fontWeight: '800' },
+  safeArea: { flex: 1, backgroundColor: '#F6F7FF' },
+  headerContainer: { flexDirection: 'row', justifyContent: 'space-between', padding: 10, alignItems: 'center' },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: '#5B6EF7', flex: 1, textAlign: 'center' },
+  scrollContainer: { paddingBottom: 40 },
+  inputCard: { backgroundColor: 'white', padding: 10, margin: 15, borderRadius: 16, borderWidth: 1, borderColor: '#EBEBEB' },
+  searchBox: { flexDirection: 'row', backgroundColor: 'white', marginHorizontal: 15, paddingVertical: 5, paddingHorizontal: 12, borderRadius: 12, alignItems: 'center', elevation: 2 },
+  input: { flex: 1, marginLeft: 10, paddingVertical: 8 },
+  dateSelector: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: 'white', marginVertical: 10, marginHorizontal: 15, paddingVertical: 13, paddingHorizontal: 12, borderRadius: 12, alignItems: 'center', elevation: 2 },
+  dateText: { fontWeight: '600' },
+  genBtn: { backgroundColor: '#5B6EF7', margin: 15, flexDirection: 'row', justifyContent: 'center', padding: 15, borderRadius: 12 },
+  genBtnText: { color: 'white', fontWeight: '700', fontSize: 16, marginLeft: 8 },
+  statsHeader: { flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: 15, marginBottom: 15 },
+  subSummaryText: { fontSize: 12, color: '#666', marginTop: 2 },
+  summaryTitle: { fontWeight: 'bold', fontSize: 16 },
+  totalText: { fontWeight: 'bold', color: '#5B6EF7' },
+  card: { backgroundColor: 'white', marginHorizontal: 15, padding: 15, borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: '#EEE' },
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  avatar: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#F0F0FF', justifyContent: 'center', alignItems: 'center' },
+  avatarText: { color: '#5B6EF7', fontWeight: 'bold' },
+  name: { fontWeight: 'bold' },
+  dept: { fontSize: 12, color: '#666' },
+  rate: { textAlign: 'right', fontWeight: 'bold', color: '#5B6EF7', fontSize: 16 },
+  bottomStats: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 15, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
+  statLabel: { fontSize: 9 },
+  statBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, marginBottom: 6, alignItems: 'center' },
+  statVal: { fontWeight: 'bold' },
+  emptyContainer: { alignItems: 'center', marginTop: 50, padding: 20 },
+  emptyTitle: { fontSize: 16, fontWeight: 'bold', color: '#374151', marginTop: 15 },
+  emptySubtitle: { color: '#666', textAlign: 'center', marginTop: 5 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: 'white', borderRadius: 20, padding: 20, maxHeight: '70%' },
+  modalHeader: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
+  monthItem: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#EEE' },
+  cancelBtn: { marginTop: 20, alignItems: 'center', padding: 10 }
 });
 
 export default MonthlyEmployeeReport;
