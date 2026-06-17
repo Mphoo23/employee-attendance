@@ -24,15 +24,15 @@ const Profile = () => {
     position: 'admin'
   };
 
-  const displayData = userRole === 'admin' ? ADMIN_PROFILE : {
+  const displayData = loggedInEmployee?.role === 'admin' ? ADMIN_PROFILE : {
     id: loggedInEmployee?.id || 'N/A',
     phoneno: loggedInEmployee?.phoneno || 'N/A',
     department: loggedInEmployee?.department || 'N/A',
     gender: loggedInEmployee?.gender || 'N/A',
     email: loggedInEmployee?.email || 'N/A',
     address: loggedInEmployee?.address || 'N/A',
-    name: loggedInEmployee?.name || 'Admin',
-    position: loggedInEmployee?.position || 'admin'
+    name: loggedInEmployee?.name || 'N/A',
+    position: loggedInEmployee?.position || 'N/A'
   };
 
   useEffect(() => {
@@ -105,7 +105,7 @@ const Profile = () => {
 
         <Text style={styles.headerTitle}>My Profile</Text>
         
-        {userRole !== 'admin' && (
+        {loggedInEmployee?.role !== 'admin' && (
           <Pressable onPress={() => router.push('../edit_profile')} style={{ position: 'absolute', right: 25 }}> 
             <MaterialCommunityIcons name="pencil-outline" size={20} color="#5B6EF7" />
           </Pressable>
@@ -135,7 +135,7 @@ const Profile = () => {
             <InfoRow label="Home Address" value={displayData.address} />
           </View>
           
-          {userRole !== 'admin' && (
+          {loggedInEmployee?.role !== 'admin' && (
             <Pressable 
               onPress={() => router.push('../change_password')}
               style={({ pressed }) => [styles.actionBtn, { backgroundColor: pressed ? '#E5E7EB' : '#5B6EF7' }]}

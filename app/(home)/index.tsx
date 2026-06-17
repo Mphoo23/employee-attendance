@@ -17,7 +17,7 @@ const Index = () => {
   const { 
     employees, markAttendance, hasCheckedInToday, getStatusStyle, 
     attendanceRecords, getInitials, publicHolidays, 
-    calculateWorkHours, markCheckOut 
+    calculateWorkHours, markCheckOut ,loggedInEmployee
   } = useEmployeeContext();
  const isRestrictedDay = () => {
     const today = new Date();
@@ -40,32 +40,30 @@ const Index = () => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
   const [hasCheckedOutToday, setHasCheckedOutToday] = useState(false);
-  const [userRole, setUserRole] = useState('');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
       setIsInitializing(true);
       const storedData = await AsyncStorage.getItem('loggedInEmployee');
-      const role = await AsyncStorage.getItem('userRole');
-      if (role) setUserRole(role);
+     
       
       const today = new Date().toISOString().split('T')[0];
-      if (storedData) {
-        const emp = JSON.parse(storedData);
-        setEmployeeName(emp.name);
-        setEmployeeId(emp.id);
-        setInitials(getInitials(emp.name));
+      if (loggedInEmployee) {
+        setEmployeeName(loggedInEmployee.name);
+        setEmployeeId(loggedInEmployee.id);
+        setInitials(getInitials(loggedInEmployee.name));
         
-        const record = attendanceRecords.find(r => r.employeeId === emp.id && r.date === today);
+        const record = attendanceRecords.find(r => r.employeeId === loggedInEmployee.id && r.date === today);
         if (record) {
           setIsCheckedIn(true);
           setSelectedStatus(record.status);
           if (record.checkInTime) setCheckInTime(new Date(record.checkInTime));
         }
 
-        const checkoutStatus = await AsyncStorage.getItem(`checkout_${emp.id}_${today}`);
-        const savedHours = await AsyncStorage.getItem(`workHours_${emp.id}_${today}`);
+        const checkoutStatus = await AsyncStorage.getItem(`checkout_${loggedInEmployee.id}_${today}`);
+        const savedHours = await AsyncStorage.getItem(`workHours_${loggedInEmployee.id}_${today}`);
         if (checkoutStatus === 'true') {
           setHasCheckedOutToday(true);
           setWorkHoursDisplay(savedHours || '');
@@ -176,7 +174,7 @@ const Index = () => {
             <Text style={styles.timeDisplay}>{time} <Text style={{ fontSize: 20 }}>{ampm}</Text></Text>
 
             <View style={{flex: 1}}>
-              {userRole === 'admin' && (
+               {loggedInEmployee?.role === 'admin' && (
                 (() => {
                   const today = new Date().toISOString().split('T')[0];
                   const todaysRecords = attendanceRecords.filter(r => r.date === today);
@@ -198,7 +196,7 @@ const Index = () => {
               )}
             </View>
             
-            {userRole !== 'admin' && (
+             {loggedInEmployee?.role !== 'admin' && (
               <View style={styles.actionRow}>
                 <Pressable 
                   style={[styles.checkInBtn, (isInitializing || isCheckedIn || isRestrictedDay()) && { backgroundColor: '#A0A0A0' }]} 
